@@ -1,0 +1,777 @@
+//
+//  main.cpp
+//  holoprism4
+//
+//  Created by shaun gerrard on 7/6/2024.
+//
+
+#include <iostream>
+#include <vector>
+#include <complex>
+#include <random>
+#include <cmath>
+#include <numeric>
+#include <functional>
+#include <chrono>
+#include <unordered_map>
+#include <set>
+#include <memory>
+
+class LatticeSymbolBase {
+public:
+    virtual ~LatticeSymbolBase() = default;
+    virtual std::vector<std::complex<double>> getEncrypted() const = 0;
+    virtual void setEncrypted(const std::vector<std::complex<double>>& encrypted) = 0;
+    virtual std::vector<std::string> getColors() const = 0;
+    virtual void setColors(const std::vector<std::string>& colors) = 0;
+    virtual std::vector<size_t> getComplexity() const = 0;
+    virtual void setComplexity(const std::vector<size_t>& complexity) = 0;
+    virtual std::unique_ptr<LatticeSymbolBase> clone() const = 0;
+};
+
+struct LatticeSymbol : public LatticeSymbolBase {
+    std::vector<int> polynomial;
+    size_t complexity;
+    std::vector<std::complex<double>> encrypted;
+    std::vector<std::string> colors;
+    
+    std::vector<std::complex<double>> getEncrypted() const override {
+        return encrypted;
+    }
+
+    void setEncrypted(const std::vector<std::complex<double>>& encrypted) override {
+        this->encrypted = encrypted;
+    }
+
+    std::vector<std::string> getColors() const override {
+        return colors;
+    }
+
+    void setColors(const std::vector<std::string>& colors) override {
+        this->colors = colors;
+    }
+
+    std::vector<size_t> getComplexity() const override {
+        return std::vector<size_t>{complexity};
+    }
+
+    void setComplexity(const std::vector<size_t>& complexity) override {
+        if (!complexity.empty()) {
+            this->complexity = complexity[0];
+        }
+    }
+
+    std::unique_ptr<LatticeSymbolBase> clone() const override {
+        return std::make_unique<LatticeSymbol>(*this);
+    }
+};
+
+class FBM {
+public:
+    FBM(double h, double sigma) : h(h), sigma(sigma) {}
+
+    double noise(double t) {
+        return sigma * std::pow(t, h) * std::sin(2.0 * M_PI * t);
+    }
+
+private:
+    double h;
+    double sigma;
+};
+
+std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>> createLattice(
+    int width, int height, int depth, int time, int energy, int dimension7, int dimension8) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distribution(-10, 10);
+
+    std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>> lattice(
+        width, std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>(
+            height, std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>(
+                depth, std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>(
+                    time, std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>(
+                        energy, std::vector<std::vector<std::vector<LatticeSymbol>>>(
+                            dimension7, std::vector<std::vector<LatticeSymbol>>(
+                                dimension8, std::vector<LatticeSymbol>(1)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    );
+
+    for (auto& symbolLayer1 : lattice) {
+        for (auto& symbolLayer2 : symbolLayer1) {
+            for (auto& symbolLayer3 : symbolLayer2) {
+                for (auto& symbolLayer4 : symbolLayer3) {
+                    for (auto& symbolLayer5 : symbolLayer4) {
+                        for (auto& symbolLayer6 : symbolLayer5) {
+                            for (auto& symbolLayer7 : symbolLayer6) {
+                                for (auto& symbol : symbolLayer7) {
+                                    int numCoefficients = 256;
+                                    symbol.polynomial.resize(numCoefficients);
+                                    for (int j = 0; j < numCoefficients; j++) {
+                                        symbol.polynomial[j] = distribution(gen);
+                                    }
+                                    symbol.complexity = gen() % 100;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return lattice;
+}
+
+int evaluatePolynomial(const std::vector<int>& polynomial, int value) {
+    int result = 0;
+    int power = 1;
+    for (int coefficient : polynomial) {
+        result += coefficient * power;
+        power *= value;
+    }
+    return result;
+}
+
+template <typename T>
+std::vector<T> toBase(size_t value, T base) {
+    std::vector<T> digits;
+    while (value > 0) {
+        digits.push_back(static_cast<T>(value % base));
+        value /= base;
+    }
+    return digits;
+}
+
+template <typename T>
+size_t fromBase(const std::vector<T>& digits, T base) {
+    size_t value = 0;
+    for (T digit : digits) {
+        value = value * base + digit;
+    }
+    return value;
+}
+
+template <size_t N>
+class NovelFHE {
+public:
+    NovelFHE(double h, double sigma) : fbm(h, sigma) {}
+    
+    std::vector<std::vector<std::complex<double>>> encryptMessage(const std::string& message,
+                                                                  const std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>>& lattice) {
+        std::vector<std::vector<std::complex<double>>> encryptedMessage;
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<> dis(0.0, 1.0);
+        
+        for (char c : message) {
+            auto start = std::chrono::high_resolution_clock::now();
+            std::vector<std::complex<double>> encryptedSymbol;
+            for (size_t i = 0; i < N; ++i) {
+                double iv = dis(gen);
+                encryptedSymbol.push_back(encryptSymbol(std::complex<double>(static_cast<double>(c), iv)));
+            }
+            encryptedMessage.push_back(encryptedSymbol);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+            std::cout << "Symbol Encryption: " << duration.count() << " us" << std::endl;
+        }
+        return encryptedMessage;
+    }
+    
+    std::string decryptMessage(const std::vector<std::vector<std::complex<double>>>& encryptedMessage,
+                               const std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>>& lattice) {
+        std::string decryptedMessage;
+        for (const auto& encryptedSymbol : encryptedMessage) {
+            auto start = std::chrono::high_resolution_clock::now();
+            std::vector<double> decryptedValues;
+            for (const auto& dimension : encryptedSymbol) {
+                std::complex<double> decryptedSymbol = decryptSymbol(dimension);
+                decryptedValues.push_back(std::round(decryptedSymbol.real()));
+            }
+            int symbolValue = std::round(std::accumulate(decryptedValues.begin(), decryptedValues.end(), 0.0) / decryptedValues.size());
+            if (symbolValue < 0) {
+                symbolValue += 256;
+            }
+            char decryptedChar = static_cast<char>(symbolValue % 256);
+            decryptedMessage += decryptedChar;
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+            std::cout << "Symbol Decryption: " << duration.count() << " us" << std::endl;
+        }
+        return decryptedMessage;
+    }
+    
+    std::vector<std::complex<double>> homomorphicAdd(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] + b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Addition: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicSubtract(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] - b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Subtraction: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicMultiply(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] * b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Multiplication: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicDivide(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] / b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Division: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicRotate(const std::vector<std::complex<double>>& a, double angle) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] * std::polar(1.0, angle);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Rotation: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicConjugate(const std::vector<std::complex<double>>& a) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::conj(a[i]);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Conjugate: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicInverse(const std::vector<std::complex<double>>& a) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = 1.0 / a[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Inverse: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicExponentiate(const std::vector<std::complex<double>>& a, double exponent) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::pow(a[i], exponent);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Exponentiation: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicLogarithm(const std::vector<std::complex<double>>& a) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::log(a[i]);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Logarithm: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    std::vector<std::complex<double>> homomorphicSquareRoot(const std::vector<std::complex<double>>& a) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::sqrt(a[i]);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Square Root: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicAbsolute(const std::vector<std::complex<double>>& a) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::complex<double>(std::abs(a[i]), 0);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Absolute: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicMinimum(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::abs(a[i]) < std::abs(b[i]) ? a[i] : b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Minimum: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicMaximum(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::abs(a[i]) > std::abs(b[i]) ? a[i] : b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Maximum: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> homomorphicEvaluate(const std::vector<std::vector<std::complex<double>>>& encryptedData,
+                                                          std::function<std::vector<std::complex<double>>(const std::vector<std::vector<std::complex<double>>>&)> fn) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result = fn(encryptedData);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Evaluation: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    bool homomorphicCompare(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        bool result = std::accumulate(a.begin(), a.end(), std::complex<double>(0, 0)).real() < std::accumulate(b.begin(), b.end(), std::complex<double>(0, 0)).real();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Comparison: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    bool homomorphicEqual(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        bool result = a == b;
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Homomorphic Equality: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> holomorphicAdd(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] + b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Holomorphic Addition: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> holomorphicMultiply(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = a[i] * b[i];
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Holomorphic Multiplication: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::vector<std::complex<double>> holomorphicExponentiate(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::vector<std::complex<double>> result(a.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            result[i] = std::pow(a[i], b[i]);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Holomorphic Exponentiation: " << duration.count() << " us" << std::endl;
+        return result;
+    }
+    
+    std::shared_ptr<LatticeSymbolBase> homomorphicAdd(const std::shared_ptr<LatticeSymbolBase>& a, const std::shared_ptr<LatticeSymbolBase>& b) {
+        auto result = std::make_shared<LatticeSymbol>();
+        result->setEncrypted(homomorphicAdd(a->getEncrypted(), b->getEncrypted()));
+        result->setColors(mergeColors(a->getColors(), b->getColors()));
+        result->setComplexity(mergeComplexity(a->getComplexity(), b->getComplexity()));
+        return result;
+    }
+    
+    std::shared_ptr<LatticeSymbolBase> homomorphicMultiply(const std::shared_ptr<LatticeSymbolBase>& a, const std::shared_ptr<LatticeSymbolBase>& b) {
+        auto result = std::make_shared<LatticeSymbol>();
+        result->setEncrypted(homomorphicMultiply(a->getEncrypted(), b->getEncrypted()));
+        result->setColors(mergeColors(a->getColors(), b->getColors()));
+        result->setComplexity(mergeComplexity(a->getComplexity(), b->getComplexity()));
+        return result;
+    }
+
+    std::shared_ptr<LatticeSymbolBase> homomorphicRotate(const std::shared_ptr<LatticeSymbolBase>& a, double angle) {
+        auto result = std::make_shared<LatticeSymbol>();
+        result->setEncrypted(homomorphicRotate(a->getEncrypted(), angle));
+        result->setColors(a->getColors());
+        result->setComplexity(a->getComplexity());
+        return result;
+    }
+    
+    std::shared_ptr<LatticeSymbolBase> foldAddition(const std::vector<std::shared_ptr<LatticeSymbolBase>>& encryptedData) {
+        return std::accumulate(encryptedData.begin() + 1, encryptedData.end(), encryptedData[0],
+                               [this](const std::shared_ptr<LatticeSymbolBase>& acc, const std::shared_ptr<LatticeSymbolBase>& symbol) {
+            return homomorphicAdd(acc, symbol);
+        });
+    }
+    
+    std::shared_ptr<LatticeSymbolBase> foldMultiplication(const std::vector<std::shared_ptr<LatticeSymbolBase>>& encryptedData) {
+        return std::accumulate(encryptedData.begin() + 1, encryptedData.end(), encryptedData[0],
+                               [this](const std::shared_ptr<LatticeSymbolBase>& acc, const std::shared_ptr<LatticeSymbolBase>& symbol) {
+            return homomorphicMultiply(acc, symbol);
+        });
+    }
+    
+    std::shared_ptr<LatticeSymbolBase> foldRotation(const std::vector<std::shared_ptr<LatticeSymbolBase>>& encryptedData, double angle) {
+        auto result = std::make_shared<LatticeSymbol>();
+        auto accumulated = encryptedData[0]->getEncrypted();
+        for (size_t i = 1; i < encryptedData.size(); ++i) {
+            accumulated = homomorphicAdd(accumulated, homomorphicRotate(encryptedData[i]->getEncrypted(), angle));
+        }
+        result->setEncrypted(accumulated);
+        result->setColors(mergeColors(encryptedData));
+        result->setComplexity(mergeComplexity(encryptedData));
+        return result;
+    }
+    
+    std::vector<std::string> mergeColors(const std::vector<std::string>& colors1, const std::vector<std::string>& colors2) {
+        std::vector<std::string> mergedColors;
+        std::set<std::string> uniqueColors(colors1.begin(), colors1.end());
+        uniqueColors.insert(colors2.begin(), colors2.end());
+        mergedColors.assign(uniqueColors.begin(), uniqueColors.end());
+        return mergedColors;
+    }
+    
+    std::vector<size_t> mergeComplexity(const std::vector<size_t>& complexity1, const std::vector<size_t>& complexity2) {
+        std::vector<size_t> mergedComplexity;
+        size_t maxComplexity = 0;
+        if (!complexity1.empty()) {
+            maxComplexity = complexity1[0];
+        }
+        if (!complexity2.empty()) {
+            maxComplexity = std::max(maxComplexity, complexity2[0]);
+        }
+        mergedComplexity.push_back(maxComplexity);
+        return mergedComplexity;
+    }
+    
+    std::vector<std::string> mergeColors(const std::vector<std::shared_ptr<LatticeSymbolBase>>& symbols) {
+        std::vector<std::string> mergedColors;
+        for (const auto& symbol : symbols) {
+            const auto& colors = symbol->getColors();
+            mergedColors.insert(mergedColors.end(), colors.begin(), colors.end());
+        }
+        std::sort(mergedColors.begin(), mergedColors.end());
+        mergedColors.erase(std::unique(mergedColors.begin(), mergedColors.end()), mergedColors.end());
+        return mergedColors;
+    }
+    
+    std::vector<size_t> mergeComplexity(const std::vector<std::shared_ptr<LatticeSymbolBase>>& symbols) {
+        std::vector<size_t> mergedComplexity;
+        for (const auto& symbol : symbols) {
+            const auto& complexity = symbol->getComplexity();
+            mergedComplexity = mergeComplexity(mergedComplexity, complexity);
+        }
+        return mergedComplexity;
+    }
+    
+    std::vector<size_t> generateComplexity() {
+        std::vector<size_t> complexity;
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<size_t> dis(0, 1ULL << 63);
+        size_t value = dis(gen);
+        size_t base = getModuloBase(value);
+        complexity = toBase(value, base);
+        return complexity;
+    }
+    
+    std::complex<double> decryptSymbol(const std::complex<double>& encryptedSymbol) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::complex<double> decryptedSymbol = encryptedSymbol - generateNoise();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Symbol Decryption: " << duration.count() << " us" << std::endl;
+        return decryptedSymbol;
+    }
+private:
+    FBM fbm;
+    std::unordered_map<size_t, size_t> moduloBases;
+    std::complex<double> encryptSymbol(const std::complex<double>& symbol) {
+        auto start = std::chrono::high_resolution_clock::now();
+        std::complex<double> noise = generateNoise();
+        std::complex<double> encryptedSymbol = symbol + noise;
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        std::cout << "Symbol Encryption: " << duration.count() << " us" << std::endl;
+        return encryptedSymbol;
+    }
+    
+    std::complex<double> generateNoise() {
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        static std::uniform_real_distribution<> dis(-0.01, 0.01);
+        
+        double t = dis(gen);
+        double realNoise = fbm.noise(t);
+        double imagNoise= fbm.noise(1.0 - t);
+        return std::complex<double>(realNoise, imagNoise);
+    }
+    size_t getModuloBase(size_t value) {
+        if (moduloBases.count(value) == 0) {
+            size_t base = static_cast<size_t>(std::pow(value, 1.0 / 3.0)) + 1;
+            moduloBases[value] = base;
+        }
+        return moduloBases[value];
+    }
+};
+int main() {
+    double h = 1, sigma = 0.0001;
+    NovelFHE<256> fhe(h, sigma);
+    int width = 3, height = 3, depth = 2, time = 3, energy = 2, dimension7 = 2, dimension8 = 2;
+    auto lattice = createLattice(width, height, depth, time, energy, dimension7, dimension8);
+    std::string message = "THIS IS THE END OF THE INTERMINABLE BULLSHIT!!!!";
+    auto encryptedMessage = fhe.encryptMessage(message, lattice);
+    std::cout << "Original Message: " << message << std::endl;
+    std::cout << "Encrypted Message: ";
+    for (const auto& encryptedSymbol : encryptedMessage) {
+        for (const auto& dimension : encryptedSymbol) {
+            std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+        }
+        std::cout << " | ";
+    }
+    std::cout << std::endl;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    std::string decryptedMessage = fhe.decryptMessage(encryptedMessage, lattice);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << "Message Decryption: " << duration.count() << " us" << std::endl;
+    std::cout << "Decrypted Message: " << decryptedMessage << std::endl;
+    
+    std::vector<std::shared_ptr<LatticeSymbolBase>> encryptedSymbols;
+    for (const auto& encryptedSymbol : encryptedMessage) {
+        auto symbol = std::make_shared<LatticeSymbol>();
+        symbol->setEncrypted(encryptedSymbol);
+        symbol->setColors({"Red", "Green", "Blue"});
+        symbol->setComplexity({1});
+        encryptedSymbols.push_back(symbol);
+    }
+    
+    auto foldedSum = fhe.foldAddition(encryptedSymbols);
+    auto foldedProduct = fhe.foldMultiplication(encryptedSymbols);
+    auto foldedRotated = fhe.foldRotation(encryptedSymbols, M_PI / 4);
+    
+    std::cout << "Decrypted Folded Sum: " << fhe.decryptMessage({foldedSum->getEncrypted()}, lattice) << std::endl;
+    std::cout << "Decrypted Folded Product: " << fhe.decryptMessage({foldedProduct->getEncrypted()}, lattice) << std::endl;
+    std::cout << "Decrypted Folded Rotated: " << fhe.decryptMessage({foldedRotated->getEncrypted()}, lattice) << std::endl;
+    
+    auto encryptedChar1 = encryptedMessage[0];
+    auto encryptedChar2 = encryptedMessage[1];
+    
+    auto encryptedSum = fhe.homomorphicAdd(encryptedChar1, encryptedChar2);
+    auto encryptedDifference = fhe.homomorphicSubtract(encryptedChar1, encryptedChar2);
+    auto encryptedProduct = fhe.homomorphicMultiply(encryptedChar1, encryptedChar2);
+    auto encryptedQuotient = fhe.homomorphicDivide(encryptedChar1, encryptedChar2);
+    auto encryptedRotated = fhe.homomorphicRotate(encryptedChar1, M_PI / 4);
+    auto encryptedConjugate = fhe.homomorphicConjugate(encryptedChar1);
+    auto encryptedInverse = fhe.homomorphicInverse(encryptedChar1);
+    auto encryptedExponentiate = fhe.homomorphicExponentiate(encryptedChar1, 2.5);
+    auto encryptedLogarithm = fhe.homomorphicLogarithm(encryptedChar1);
+    auto encryptedSquareRoot = fhe.homomorphicSquareRoot(encryptedChar1);
+    auto encryptedAbsolute = fhe.homomorphicAbsolute(encryptedChar1);
+    auto encryptedMinimum = fhe.homomorphicMinimum(encryptedChar1, encryptedChar2);
+    auto encryptedMaximum = fhe.homomorphicMaximum(encryptedChar1, encryptedChar2);
+    
+    std::cout << "Homomorphic Operations:" << std::endl;
+    std::cout << "Sum: ";
+    for (const auto& dimension : encryptedSum) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Difference: ";
+    for (const auto& dimension : encryptedDifference) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Product: ";
+    for (const auto& dimension : encryptedProduct) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Quotient: ";
+    for (const auto& dimension : encryptedQuotient) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Rotated: ";
+    for (const auto& dimension : encryptedRotated) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Conjugate: ";
+    for (const auto& dimension : encryptedConjugate) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Inverse: ";
+    for (const auto& dimension : encryptedInverse) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Exponentiate: ";
+    for (const auto& dimension : encryptedExponentiate) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Logarithm: ";
+    for (const auto& dimension : encryptedLogarithm) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Square Root: ";
+    for (const auto& dimension : encryptedSquareRoot) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Absolute: ";
+    for (const auto& dimension : encryptedAbsolute) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Minimum: ";
+    for (const auto& dimension : encryptedMinimum) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Maximum: ";
+    for (const auto& dimension : encryptedMaximum) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Decrypted Results:" << std::endl;
+    std::cout << "Sum: " << fhe.decryptMessage({encryptedSum}, lattice) << std::endl;
+    std::cout << "Difference: " << fhe.decryptMessage({encryptedDifference}, lattice) << std::endl;
+    std::cout << "Product: " << fhe.decryptMessage({encryptedProduct}, lattice) << std::endl;
+    std::cout << "Quotient: " << fhe.decryptMessage({encryptedQuotient}, lattice) << std::endl;
+    std::cout << "Rotated: " << fhe.decryptMessage({encryptedRotated}, lattice) << std::endl;
+    std::cout << "Conjugate: " << fhe.decryptMessage({encryptedConjugate}, lattice) << std::endl;
+    std::cout << "Inverse: " << fhe.decryptMessage({encryptedInverse}, lattice) << std::endl;
+    std::cout << "Exponentiate: " << fhe.decryptMessage({encryptedExponentiate}, lattice) << std::endl;
+    std::cout << "Logarithm: " << fhe.decryptMessage({encryptedLogarithm}, lattice) << std::endl;
+    std::cout << "Square Root: " << fhe.decryptMessage({encryptedSquareRoot}, lattice) << std::endl;
+    std::cout << "Absolute: " << fhe.decryptMessage({encryptedAbsolute}, lattice) << std::endl;
+    std::cout << "Minimum: " << fhe.decryptMessage({encryptedMinimum}, lattice) << std::endl;
+    std::cout << "Maximum: " << fhe.decryptMessage({encryptedMaximum}, lattice) << std::endl;
+    
+    // Capture the variables in the lambda explicitly
+    auto holomorphicSum = fhe.holomorphicAdd(encryptedChar1, encryptedChar2);
+    auto holomorphicProduct = fhe.holomorphicMultiply(encryptedChar1, encryptedChar2);
+    auto holomorphicExponentiate = fhe.holomorphicExponentiate(encryptedChar1, encryptedChar2);
+    
+    auto encryptedEvaluated = fhe.homomorphicEvaluate(encryptedMessage, [](const std::vector<std::vector<std::complex<double>>>& data) {
+        std::vector<std::complex<double>> result(data[0].size());
+        for (size_t i = 0; i < data[0].size(); ++i) {
+            std::complex<double> sum(0, 0);
+            for (const auto& symbol : data) {
+                sum += symbol[i];
+            }
+            result[i] = sum;
+        }
+        return result;
+    });
+    
+    bool isLess = fhe.homomorphicCompare(encryptedChar1, encryptedChar2);
+    bool isEqual = fhe.homomorphicEqual(encryptedChar1, encryptedChar2);
+    
+    std::cout << "Homomorphic Operations (after evaluation):" << std::endl;
+    std::cout << "Evaluated: " << fhe.decryptMessage({encryptedEvaluated}, lattice) << std::endl;
+    std::cout << "Is Less: " << (isLess ? "Yes" : "No") << std::endl;
+    std::cout << "Is Equal: " << (isEqual ? "Yes" : "No") << std::endl;
+    
+    std::cout << "Noise Level: " << sigma << std::endl;
+    std::cout << "Complexity: ";
+    auto complexity = fhe.generateComplexity();
+    for (const auto& digit : complexity) {
+        std::cout << digit << " ";
+    }
+    std::cout << std::endl;
+    
+    std::cout << "Holomorphic Operations:" << std::endl;
+    std::cout << "Sum: ";
+    for (const auto& dimension : holomorphicSum) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    std::cout << "Decrypted Sum: " << fhe.decryptMessage({holomorphicSum}, lattice) << std::endl;
+    
+    std::cout << "Product: ";
+    for (const auto& dimension : holomorphicProduct) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    std::cout << "Decrypted Product: " << fhe.decryptMessage({holomorphicProduct}, lattice) << std::endl;
+    
+    std::cout << "Exponentiate: ";
+    for (const auto& dimension : holomorphicExponentiate) {
+        std::cout << "(" << dimension.real() << "," << dimension.imag() << ") ";
+    }
+    std::cout << std::endl;
+    std::cout << "Decrypted Exponentiate: " << fhe.decryptMessage({holomorphicExponentiate}, lattice) << std::endl;
+    
+    return 0;
+}
